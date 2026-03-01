@@ -1,9 +1,4 @@
-import pool from '../db';
-
-// Use the original pool query to avoid demo schema patching
-// This module is imported after patchPoolForDemo runs, but cleanup
-// runs outside of any request context, so pool.query falls through
-// to the original implementation (no AsyncLocalStorage store).
+import { getInfraPool } from './demo-session';
 
 export function startDemoCleanup() {
   // Run every 30 minutes
@@ -14,9 +9,10 @@ export function startDemoCleanup() {
 }
 
 async function cleanupExpiredSessions() {
+  const infraPool = getInfraPool();
   try {
     // Find sessions last seen more than 2 hours ago
-    const expired = await pool.query(`
+    const expired = await infraPool.query(`
       SELECT schema_name FROM demo_sessions
       WHERE last_seen_at < NOW() - INTERVAL '2 hours'
     `);
@@ -24,8 +20,8 @@ async function cleanupExpiredSessions() {
     for (const row of expired.rows) {
       const schema = row.schema_name;
       try {
-        await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
-        await pool.query(
+        await infraPool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+        await infraPool.query(
           'DELETE FROM demo_sessions WHERE schema_name = $1',
           [schema]
         );

@@ -13,32 +13,52 @@ interface DemoStore {
 
 export const demoStorage = new AsyncLocalStorage<DemoStore>();
 
+/** Separate unpatched pool for demo infrastructure queries (schema mgmt, session tracking). */
+let infraPool: Pool;
+
+export function getInfraPool(): Pool {
+  return infraPool;
+}
+
 function generateSessionId(): string {
   return 'demo_' + crypto.randomBytes(4).toString('hex');
 }
 
-function getOriginalQuery(pool: Pool): Function {
-  return (pool as any).__originalQuery;
-}
-
-function getOriginalConnect(pool: Pool): Function {
-  return (pool as any).__originalConnect;
-}
-
+/**
+ * Patch pool.query and pool.connect so that within a request's
+ * AsyncLocalStorage context, all queries route through the demo
+ * session's schema-bound client.
+ *
+ * Infrastructure queries (CREATE SCHEMA, demo_sessions table, cleanup)
+ * use a completely separate Pool instance (infraPool) that is never patched.
+ */
 export function patchPoolForDemo(pool: Pool) {
-  (pool as any).__originalQuery = pool.query.bind(pool);
-  (pool as any).__originalConnect = pool.connect.bind(pool);
+  // Create a separate pool with the same config for infra queries.
+  // pg.Pool exposes its config via pool.options.
+  infraPool = new Pool({
+    host: process.env.DB_HOST || 'db',
+    port: parseInt(process.env.DB_PORT || '5432'),
+    database: process.env.DB_NAME || 'pliny',
+    user: process.env.DB_USER || 'pliny',
+    password: process.env.DB_PASSWORD || 'dev-only-password',
+  });
+
+  const origQuery = pool.query.bind(pool);
+  const origConnect = pool.connect.bind(pool);
 
   (pool as any).query = function (...args: any[]) {
     const store = demoStorage.getStore();
     if (store?.client) {
       return (store.client.query as Function)(...args);
     }
-    return getOriginalQuery(pool)(...args);
+    // Outside request context — use original (unpatched internals
+    // won't re-enter this function because origQuery is a bound
+    // closure over the *original* method reference, not pool.query).
+    return origQuery(...args);
   };
 
-  (pool as any).connect = async function () {
-    const client: PoolClient = await getOriginalConnect(pool)();
+  (pool as any).connect = async function (): Promise<PoolClient> {
+    const client: PoolClient = await origConnect();
     const store = demoStorage.getStore();
     if (store?.schema) {
       await client.query(`SET search_path TO "${store.schema}", public`);
@@ -47,8 +67,8 @@ export function patchPoolForDemo(pool: Pool) {
   };
 }
 
-export async function initDemoDb(pool: Pool) {
-  await getOriginalQuery(pool)(`
+export async function initDemoDb() {
+  await infraPool.query(`
     CREATE TABLE IF NOT EXISTS demo_sessions (
       schema_name VARCHAR(255) PRIMARY KEY,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -57,18 +77,18 @@ export async function initDemoDb(pool: Pool) {
   `);
 }
 
-async function sessionExists(pool: Pool, schemaName: string): Promise<boolean> {
-  const result = await getOriginalQuery(pool)(
+async function sessionExists(schemaName: string): Promise<boolean> {
+  const result = await infraPool.query(
     'SELECT 1 FROM demo_sessions WHERE schema_name = $1',
     [schemaName]
   );
   return result.rows.length > 0;
 }
 
-async function createDemoSchema(pool: Pool, schemaName: string): Promise<void> {
-  await getOriginalQuery(pool)(`CREATE SCHEMA "${schemaName}"`);
+async function createDemoSchema(schemaName: string): Promise<void> {
+  await infraPool.query(`CREATE SCHEMA "${schemaName}"`);
 
-  const client: PoolClient = await getOriginalConnect(pool)();
+  const client: PoolClient = await infraPool.connect();
   try {
     await client.query(`SET search_path TO "${schemaName}"`);
     const schemaSQL = fs.readFileSync(
@@ -101,7 +121,7 @@ async function createDemoSchema(pool: Pool, schemaName: string): Promise<void> {
     client.release();
   }
 
-  await getOriginalQuery(pool)(
+  await infraPool.query(
     'INSERT INTO demo_sessions (schema_name) VALUES ($1)',
     [schemaName]
   );
@@ -120,14 +140,14 @@ export function createDemoMiddleware(pool: Pool) {
     try {
       let schemaName = req.cookies?.demo_session;
 
-      if (schemaName && await sessionExists(pool, schemaName)) {
-        await getOriginalQuery(pool)(
+      if (schemaName && await sessionExists(schemaName)) {
+        await infraPool.query(
           'UPDATE demo_sessions SET last_seen_at = NOW() WHERE schema_name = $1',
           [schemaName]
         );
       } else {
         schemaName = generateSessionId();
-        await createDemoSchema(pool, schemaName);
+        await createDemoSchema(schemaName);
         res.cookie('demo_session', schemaName, {
           maxAge: 2 * 60 * 60 * 1000,
           httpOnly: true,
@@ -138,7 +158,7 @@ export function createDemoMiddleware(pool: Pool) {
 
       (req as any).demoSession = schemaName;
 
-      const client: PoolClient = await getOriginalConnect(pool)();
+      const client: PoolClient = await infraPool.connect();
       await client.query(`SET search_path TO "${schemaName}", public`);
 
       let released = false;

@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import pool from '../db';
 import { generateToken } from '../middleware/auth';
+import { getInfraPool } from './demo-session';
 
 const router = Router();
 
@@ -12,8 +13,8 @@ router.get('/status', async (req: Request, res: Response) => {
   }
 
   try {
-    // demo_sessions is in public schema, accessible via search_path
-    const session = await pool.query(
+    // demo_sessions is in public schema — use infraPool (unpatched)
+    const session = await getInfraPool().query(
       'SELECT created_at, last_seen_at FROM demo_sessions WHERE schema_name = $1',
       [schemaName]
     );
