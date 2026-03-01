@@ -43,8 +43,8 @@ export function patchPoolForDemo(pool: Pool) {
     password: process.env.DB_PASSWORD || 'dev-only-password',
   });
 
-  const origQuery = pool.query.bind(pool);
-  const origConnect = pool.connect.bind(pool);
+  const origQuery = pool.query.bind(pool) as Function;
+  const origConnect = pool.connect.bind(pool) as Function;
 
   (pool as any).query = function (...args: any[]) {
     const store = demoStorage.getStore();
@@ -58,7 +58,7 @@ export function patchPoolForDemo(pool: Pool) {
   };
 
   (pool as any).connect = async function (): Promise<PoolClient> {
-    const client: PoolClient = await origConnect();
+    const client: PoolClient = await origConnect() as PoolClient;
     const store = demoStorage.getStore();
     if (store?.schema) {
       await client.query(`SET search_path TO "${store.schema}", public`);
