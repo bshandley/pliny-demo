@@ -1,0 +1,30 @@
+# Build pliny client from source with demo patches applied
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copy pliny client source
+ARG PLINY_SRC=pliny-src/client
+COPY ${PLINY_SRC}/package*.json ./
+RUN npm install
+
+COPY ${PLINY_SRC}/ .
+
+# Copy demo banner component
+COPY patches/client/DemoBanner.tsx src/components/DemoBanner.tsx
+
+# Apply client patches (modifies App.tsx)
+COPY patches/apply-client.js /tmp/apply-client.js
+RUN node /tmp/apply-client.js /app
+
+# Build
+RUN npm run build
+
+# --- Serve with nginx ---
+FROM nginx:alpine
+
+COPY --from=builder /app/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
