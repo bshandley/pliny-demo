@@ -14,6 +14,7 @@ content = content.replace(
   `import pool from './db';
 // Demo mode
 import { createDemoMiddleware, initDemoDb, patchPoolForDemo } from './demo/demo-session';
+import { createDemoRestrictions } from './demo/demo-restrictions';
 import demoRoutes from './demo/demo-routes';
 import { startDemoCleanup } from './demo/demo-cleanup';`
 );
@@ -26,6 +27,7 @@ content = content.replace(
 if (process.env.DEMO_MODE === 'true') {
   patchPoolForDemo(pool);
   app.use(createDemoMiddleware(pool));
+  app.use(createDemoRestrictions());
 }`
 );
 
