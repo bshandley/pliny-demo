@@ -117,6 +117,7 @@ async function createDemoSchema(schemaName: string): Promise<void> {
     }
     await seedDemoData(client);
   } finally {
+    await client.query('RESET search_path');
     client.release();
   }
 
@@ -164,7 +165,7 @@ export function createDemoMiddleware(pool: Pool) {
       const releaseClient = () => {
         if (!released) {
           released = true;
-          client.release();
+          client.query('RESET search_path').finally(() => client.release());
         }
       };
       res.on('finish', releaseClient);
