@@ -1,5 +1,49 @@
 import { useState, useEffect } from 'react';
 
+const DEMO_CSS = `
+/* Demo mode: gray out admin button */
+.btn-admin {
+  opacity: 0.5 !important;
+  pointer-events: none !important;
+  cursor: not-allowed !important;
+}
+
+/* Demo mode: disable profile edit form */
+.profile-edit-section input,
+.profile-edit-section button[type="submit"] {
+  opacity: 0.5 !important;
+  pointer-events: none !important;
+}
+.profile-edit-section::after {
+  content: 'Profile editing is disabled in the demo';
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+/* Demo mode: disable password change */
+.password-section input,
+.password-section button[type="submit"] {
+  opacity: 0.5 !important;
+  pointer-events: none !important;
+}
+.password-section::after {
+  content: 'Password changes are disabled in the demo';
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+/* Demo mode: hide API tokens section entirely */
+.api-tokens-section {
+  display: none !important;
+}
+`;
+
 function DemoBanner() {
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState('');
@@ -7,7 +51,17 @@ function DemoBanner() {
   useEffect(() => {
     // Push body content down to make room for the fixed banner
     document.body.style.paddingTop = '40px';
-    return () => { document.body.style.paddingTop = ''; };
+
+    // Inject demo-mode CSS restrictions
+    const style = document.createElement('style');
+    style.setAttribute('data-demo-mode', 'true');
+    style.textContent = DEMO_CSS;
+    document.head.appendChild(style);
+
+    return () => {
+      document.body.style.paddingTop = '';
+      style.remove();
+    };
   }, []);
 
   useEffect(() => {

@@ -7,13 +7,22 @@ const BLOCKED_ROUTES: [string[], string][] = [
   [['POST'], '/api/auth/forgot-password'],
   [['POST'], '/api/auth/reset-password'],
 
+  // Admin routes — block everything
+  [['GET', 'POST', 'PUT', 'DELETE'], '/api/admin'],
+
   // User management
   [['GET', 'POST', 'PUT', 'DELETE'], '/api/users'],
+
+  // Profile update (includes password change)
+  [['PUT'], '/api/profile'],
+
+  // API tokens
+  [['GET', 'POST', 'DELETE'], '/api/tokens'],
 
   // Webhooks
   [['POST', 'PUT', 'DELETE'], '/api/webhooks'],
 
-  // API tokens
+  // Public API tokens
   [['POST', 'DELETE'], '/api/v1/tokens'],
 
   // 2FA / TOTP
@@ -37,7 +46,7 @@ function matchesRoute(method: string, path: string): boolean {
     // Exact match
     if (path === pattern) return true;
 
-    // Match /api/users/:id, /api/webhooks/:id, /api/v1/tokens/:id, etc.
+    // Match /api/users/:id, /api/webhooks/:id, /api/admin/*, etc.
     if (path.startsWith(pattern + '/')) return true;
   }
 
