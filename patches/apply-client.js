@@ -100,3 +100,36 @@ content = content.replace(
 
 fs.writeFileSync(appPath, content);
 console.log('Client patches applied to', appPath);
+
+// 5. Patch nginx.conf to add rate limiting
+const nginxPath = path.join(process.argv[2] || '.', 'nginx.conf');
+let nginx = fs.readFileSync(nginxPath, 'utf-8');
+
+// Add rate limit zone before the server block, and apply it to /api/
+if (!nginx.includes('limit_req_zone')) {
+  nginx = `limit_req_zone $binary_remote_addr zone=demo_api:10m rate=20r/s;
+limit_req_zone $binary_remote_addr zone=demo_autologin:10m rate=2r/s;
+
+` + nginx;
+
+  // Rate limit /api/ and tighten auto-login specifically
+  nginx = nginx.replace(
+    'location /api/ {',
+    `location /api/demo/auto-login {
+        limit_req zone=demo_autologin burst=5 nodelay;
+        proxy_pass http://server:3001/api/demo/auto-login;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    location /api/ {
+        limit_req zone=demo_api burst=40 nodelay;`
+  );
+
+  // Hide server version
+  nginx = nginx.replace('gzip on;', 'server_tokens off;\n    gzip on;');
+
+  fs.writeFileSync(nginxPath, nginx);
+  console.log('nginx.conf patched with rate limiting');
+}
