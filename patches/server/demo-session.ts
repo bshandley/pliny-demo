@@ -28,9 +28,9 @@ export function patchPoolForDemo(pool: Pool) {
   (pool as any).query = function (...args: any[]) {
     const store = demoStorage.getStore();
     if (store?.client) {
-      return store.client.query(...args);
+      return (store.client.query as Function)(...args);
     }
-    return originalPoolQuery(...args);
+    return (originalPoolQuery as Function)(...args);
   };
 
   // Patch pool.connect so transactional code also uses the demo schema
