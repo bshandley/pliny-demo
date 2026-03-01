@@ -13,29 +13,32 @@ interface DemoStore {
 
 export const demoStorage = new AsyncLocalStorage<DemoStore>();
 
-let originalPoolQuery: Function;
-let originalPoolConnect: Function;
-
 function generateSessionId(): string {
   return 'demo_' + crypto.randomBytes(4).toString('hex');
 }
 
-export function patchPoolForDemo(pool: Pool) {
-  originalPoolQuery = pool.query.bind(pool);
-  originalPoolConnect = pool.connect.bind(pool);
+function getOriginalQuery(pool: Pool): Function {
+  return (pool as any).__originalQuery;
+}
 
-  // Patch pool.query to route through demo client when inside a demo request
+function getOriginalConnect(pool: Pool): Function {
+  return (pool as any).__originalConnect;
+}
+
+export function patchPoolForDemo(pool: Pool) {
+  (pool as any).__originalQuery = pool.query.bind(pool);
+  (pool as any).__originalConnect = pool.connect.bind(pool);
+
   (pool as any).query = function (...args: any[]) {
     const store = demoStorage.getStore();
     if (store?.client) {
       return (store.client.query as Function)(...args);
     }
-    return (originalPoolQuery as Function)(...args);
+    return getOriginalQuery(pool)(...args);
   };
 
-  // Patch pool.connect so transactional code also uses the demo schema
   (pool as any).connect = async function () {
-    const client: PoolClient = await originalPoolConnect();
+    const client: PoolClient = await getOriginalConnect(pool)();
     const store = demoStorage.getStore();
     if (store?.schema) {
       await client.query(`SET search_path TO "${store.schema}", public`);
@@ -44,8 +47,8 @@ export function patchPoolForDemo(pool: Pool) {
   };
 }
 
-export async function initDemoDb() {
-  await originalPoolQuery(`
+export async function initDemoDb(pool: Pool) {
+  await getOriginalQuery(pool)(`
     CREATE TABLE IF NOT EXISTS demo_sessions (
       schema_name VARCHAR(255) PRIMARY KEY,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -54,8 +57,8 @@ export async function initDemoDb() {
   `);
 }
 
-async function sessionExists(schemaName: string): Promise<boolean> {
-  const result = await originalPoolQuery(
+async function sessionExists(pool: Pool, schemaName: string): Promise<boolean> {
+  const result = await getOriginalQuery(pool)(
     'SELECT 1 FROM demo_sessions WHERE schema_name = $1',
     [schemaName]
   );
@@ -63,20 +66,16 @@ async function sessionExists(schemaName: string): Promise<boolean> {
 }
 
 async function createDemoSchema(pool: Pool, schemaName: string): Promise<void> {
-  await originalPoolQuery(`CREATE SCHEMA "${schemaName}"`);
+  await getOriginalQuery(pool)(`CREATE SCHEMA "${schemaName}"`);
 
-  const client: PoolClient = await originalPoolConnect();
+  const client: PoolClient = await getOriginalConnect(pool)();
   try {
     await client.query(`SET search_path TO "${schemaName}"`);
-
-    // Run base schema
     const schemaSQL = fs.readFileSync(
       path.join(__dirname, '..', 'migrations', 'schema.sql'),
       'utf-8'
     );
     await client.query(schemaSQL);
-
-    // Create migration tracking
     await client.query(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
         filename TEXT PRIMARY KEY,
@@ -84,7 +83,6 @@ async function createDemoSchema(pool: Pool, schemaName: string): Promise<void> {
       )
     `);
 
-    // Run numbered migrations
     const migDir = path.join(__dirname, '..', 'migrations');
     const files = fs.readdirSync(migDir)
       .filter((f: string) => /^\d{3}-.*\.sql$/.test(f))
@@ -98,15 +96,12 @@ async function createDemoSchema(pool: Pool, schemaName: string): Promise<void> {
         [file]
       );
     }
-
-    // Seed demo data
     await seedDemoData(client);
   } finally {
     client.release();
   }
 
-  // Track session in public schema
-  await originalPoolQuery(
+  await getOriginalQuery(pool)(
     'INSERT INTO demo_sessions (schema_name) VALUES ($1)',
     [schemaName]
   );
@@ -125,29 +120,25 @@ export function createDemoMiddleware(pool: Pool) {
     try {
       let schemaName = req.cookies?.demo_session;
 
-      if (schemaName && await sessionExists(schemaName)) {
-        // Update last seen
-        await originalPoolQuery(
+      if (schemaName && await sessionExists(pool, schemaName)) {
+        await getOriginalQuery(pool)(
           'UPDATE demo_sessions SET last_seen_at = NOW() WHERE schema_name = $1',
           [schemaName]
         );
       } else {
-        // Create new session
         schemaName = generateSessionId();
         await createDemoSchema(pool, schemaName);
         res.cookie('demo_session', schemaName, {
-          maxAge: 2 * 60 * 60 * 1000, // 2 hours
+          maxAge: 2 * 60 * 60 * 1000,
           httpOnly: true,
           path: '/',
           sameSite: 'lax',
         });
       }
 
-      // Attach session info to request
       (req as any).demoSession = schemaName;
 
-      // Acquire a client and set search_path for this request
-      const client: PoolClient = await originalPoolConnect();
+      const client: PoolClient = await getOriginalConnect(pool)();
       await client.query(`SET search_path TO "${schemaName}", public`);
 
       let released = false;

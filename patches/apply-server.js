@@ -49,7 +49,7 @@ content = content.replace(
   `await seedBuiltinTemplates();
     // Demo mode startup
     if (process.env.DEMO_MODE === 'true') {
-      await initDemoDb();
+      await initDemoDb(pool);
       startDemoCleanup();
       console.log('Demo mode enabled — ephemeral schema-per-session');
     }`
