@@ -29,12 +29,15 @@ function generateSessionId(): string {
  * AsyncLocalStorage context, all queries route through the demo
  * session's schema-bound client.
  *
- * Infrastructure queries (CREATE SCHEMA, demo_sessions table, cleanup)
- * use a completely separate Pool instance (infraPool) that is never patched.
+ * IMPORTANT: pg's Pool.query internally calls this.connect(callback).
+ * We cannot save pool.query via .bind() and call it back — the internal
+ * this.connect() would re-enter our patched connect (which is async/
+ * promise-only and would drop the callback, causing a deadlock).
+ *
+ * Instead, all non-store fallback queries go through infraPool, a
+ * separate unpatched Pool instance that never hits our patches.
  */
 export function patchPoolForDemo(pool: Pool) {
-  // Create a separate pool with the same config for infra queries.
-  // pg.Pool exposes its config via pool.options.
   infraPool = new Pool({
     host: process.env.DB_HOST || 'db',
     port: parseInt(process.env.DB_PORT || '5432'),
@@ -43,27 +46,23 @@ export function patchPoolForDemo(pool: Pool) {
     password: process.env.DB_PASSWORD || 'dev-only-password',
   });
 
-  const origQuery = pool.query.bind(pool) as Function;
-  const origConnect = pool.connect.bind(pool) as Function;
-
+  // Patch pool.query: use the per-request client when inside a demo
+  // session, otherwise forward to the unpatched infraPool.
   (pool as any).query = function (...args: any[]) {
     const store = demoStorage.getStore();
     if (store?.client) {
       return (store.client.query as Function)(...args);
     }
-    // Outside request context — use original (unpatched internals
-    // won't re-enter this function because origQuery is a bound
-    // closure over the *original* method reference, not pool.query).
-    return origQuery(...args);
+    return (infraPool.query as Function)(...args);
   };
 
-  (pool as any).connect = async function (): Promise<PoolClient> {
-    const client: PoolClient = await origConnect() as PoolClient;
-    const store = demoStorage.getStore();
-    if (store?.schema) {
-      await client.query(`SET search_path TO "${store.schema}", public`);
+  // Patch pool.connect: must handle both callback style (used internally
+  // by Pool.query) and promise style (used by app code).
+  (pool as any).connect = function (cb?: any) {
+    if (cb) {
+      return infraPool.connect(cb);
     }
-    return client;
+    return infraPool.connect();
   };
 }
 
