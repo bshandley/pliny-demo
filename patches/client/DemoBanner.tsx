@@ -42,6 +42,30 @@ const DEMO_CSS = `
 .api-tokens-section {
   display: none !important;
 }
+
+/* Demo banner: mobile 2-line layout */
+@media (max-width: 640px) {
+  .demo-banner {
+    height: auto !important;
+    min-height: 40px;
+    flex-wrap: wrap !important;
+    padding: 4px 8px !important;
+  }
+  .demo-banner .demo-desktop-only {
+    display: none !important;
+  }
+  .demo-banner .demo-expiry {
+    width: 100%;
+    text-align: center;
+  }
+  .demo-banner .demo-link {
+    width: 100%;
+    text-align: center;
+  }
+  body {
+    padding-top: 56px !important;
+  }
+}
 `;
 
 function DemoBanner() {
@@ -129,16 +153,17 @@ function DemoBanner() {
   };
 
   return (
-    <div style={bannerStyle}>
-      <span role="img" aria-label="demo">🎭</span>
-      <span>Live demo</span>
-      <span style={{ margin: '0 2px' }}>·</span>
-      <span>
+    <div className="demo-banner" style={bannerStyle}>
+      <span className="demo-desktop-only" role="img" aria-label="demo">🎭</span>
+      <span className="demo-desktop-only">Live demo</span>
+      <span className="demo-desktop-only" style={{ margin: '0 2px' }}>·</span>
+      <span className="demo-expiry">
         Your changes are private and expire in{' '}
         <strong>{timeLeft || '…'}</strong>
       </span>
-      <span style={{ margin: '0 2px' }}>·</span>
+      <span className="demo-desktop-only" style={{ margin: '0 2px' }}>·</span>
       <a
+        className="demo-link"
         href="https://github.com/bshandley/pliny"
         target="_blank"
         rel="noopener noreferrer"
