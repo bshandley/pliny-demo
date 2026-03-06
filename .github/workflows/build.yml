@@ -18,11 +18,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Clone pliny source
-        run: git clone --depth 1 https://github.com/bshandley/pliny /tmp/pliny-src
-
-      - name: Symlink pliny source into build context
-        run: ln -s /tmp/pliny-src pliny-src
+      - name: Clone pliny source into build context
+        run: git clone --depth 1 https://github.com/bshandley/pliny pliny-src
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
