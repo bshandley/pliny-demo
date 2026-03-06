@@ -1,0 +1,4 @@
+# Builds are handled by GitHub Actions (ghcr.io push).
+# No Gitea runner configured — this file intentionally disables the workflow.
+on: []
+jobs: {}
