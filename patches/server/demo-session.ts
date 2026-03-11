@@ -100,6 +100,8 @@ export function patchPoolForDemo(pool: Pool) {
     database: process.env.DB_NAME || 'pliny',
     user: process.env.DB_USER || 'pliny',
     password: process.env.DB_PASSWORD || 'dev-only-password',
+    max: 20,
+    connectionTimeoutMillis: 5000, // fail fast if pool exhausted instead of hanging forever
   });
 
   // Patch pool.query: use the per-request client when inside a demo
@@ -274,6 +276,13 @@ export function createDemoMiddleware(pool: Pool) {
       };
       res.on('finish', releaseClient);
       res.on('close', releaseClient);
+
+      // Guard: if client disconnected while we awaited createDemoSchema/lookupGeo,
+      // the close event fired before our handler was registered — release now.
+      if (res.writableEnded || (res as any).destroyed) {
+        releaseClient();
+        return;
+      }
 
       demoStorage.run({ client, schema: schemaName }, () => {
         next();
